@@ -26,7 +26,7 @@ if platform.system() == "Windows":
     icon_file = "assets/icon32.ico"
     output_name = f"PDFCommentViewer-{__version__}"
 elif platform.system() == "Darwin":  # macOS
-    icon_file = "assets/icon.icns"
+    icon_file = "assets/icon32.icns"
     output_name = f"PDFCommentViewer-{__version__}"
 else:  # Linux
     icon_file = "assets/icon32.png"
