@@ -13,26 +13,26 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.9"
+          python-version: "3.12"
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install pyinstaller
+      - name: Extract version
+        id: get_version
+        run: |
+          $version = python -c "import importlib.util; spec = importlib.util.spec_from_file_location('version', 'pdf_comment_viewer/version.py'); version = importlib.util.module_from_spec(spec); spec.loader.exec_module(version); print(version.__version__)"
+          echo "Building version: $version"
+          echo "version=$version" >> $env:GITHUB_ENV
       - name: Build executable
         run: |
           python bundle.py
-      - name: Get version
-        id: get_version
-        run: |
-          version=$(python -c "import importlib.util; spec = importlib.util.spec_from_file_location('version', 'pdf_comment_viewer/version.py'); version = importlib.util.module_from_spec(spec); spec.loader.exec_module(version); print(version.__version__)")
-          echo "Building version: $version"
-          echo "version=$version" >> $GITHUB_ENV
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: PDFCommentViewer-Windows
-          path: dist/PDFCommentViewer.exe
+          path: dist/PDFCommentViewer-${{ env.version }}.exe
 
   build-macos:
     runs-on: macos-latest
@@ -47,21 +47,27 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install pyinstaller
+      - name: Extract version
+        id: get_version
+        run: |
+          version=$(python -c "import importlib.util; spec = importlib.util.spec_from_file_location('version', 'pdf_comment_viewer/version.py'); version = importlib.util.module_from_spec(spec); spec.loader.exec_module(version); print(version.__version__)")
+          echo "Building version: $version"
+          echo "version=$version" >> $GITHUB_ENV
       - name: Build executable
         run: |
-          python -m PyInstaller bundle_config.py
+          python bundle.py
       - name: Create DMG
         run: |
           # Create directory for the app
           mkdir -p dist/dmg
-          cp -R "dist/PDFCommentViewer.app" dist/dmg/
+          cp -R "dist/PDFCommentViewer-${{ env.version }}.app" dist/dmg/ || cp -R "dist/PDFCommentViewer-${{ env.version }}" dist/dmg/
           # Create .dmg file
-          hdiutil create -volname "PDF Comment Viewer" -srcfolder dist/dmg -ov -format UDZO dist/PDFCommentViewer.dmg
+          hdiutil create -volname "PDF Comment Viewer" -srcfolder dist/dmg -ov -format UDZO dist/PDFCommentViewer-${{ env.version }}.dmg
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: PDFCommentViewer-MacOS
-          path: dist/PDFCommentViewer.dmg
+          path: dist/PDFCommentViewer-${{ env.version }}.dmg
 
   build-linux:
     runs-on: ubuntu-latest
@@ -76,33 +82,50 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install pyinstaller
+      - name: Extract version
+        id: get_version
+        run: |
+          version=$(python -c "import importlib.util; spec = importlib.util.spec_from_file_location('version', 'pdf_comment_viewer/version.py'); version = importlib.util.module_from_spec(spec); spec.loader.exec_module(version); print(version.__version__)")
+          echo "Building version: $version"
+          echo "version=$version" >> $GITHUB_ENV
       - name: Build executable
         run: |
-          python -m PyInstaller bundle_config.py
+          python bundle.py
       - name: Create tarball
         run: |
           cd dist
-          tar -czvf pdf_comment_viewer_linux.tar.gz pdf_comment_viewer
+          tar -czvf pdf_comment_viewer-${{ env.version }}.tar.gz pdf_comment_viewer-${{ env.version }}
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: PDFCommentViewer-Linux
-          path: dist/pdf_comment_viewer_linux.tar.gz
+          path: dist/pdf_comment_viewer-${{ env.version }}.tar.gz
 
   create-release:
     needs: [build-windows, build-macos, build-linux]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
+      - uses: actions/checkout@v4
+      - name: Extract version
+        id: get_version
+        run: |
+          version=$(python -c "import importlib.util; spec = importlib.util.spec_from_file_location('version', 'pdf_comment_viewer/version.py'); version = importlib.util.module_from_spec(spec); spec.loader.exec_module(version); print(version.__version__)")
+          echo "Building version: $version"
+          echo "version=$version" >> $GITHUB_ENV
       - name: Download all artifacts
         uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Display structure of downloaded files
+        run: ls -R artifacts
       - name: Create Release
         id: create_release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        uses: softprops/action-gh-release@v1
         with:
-          tag_name: ${{ github.ref }}
-          release_name: "PDF Comment Viewer v${{ env.version }}"
+          tag_name: ${{ github.ref_name }}
+          name: "PDF Comment Viewer v${{ env.version }}"
           body: |
             PDF Comment Viewer version ${{ env.version }}
             
@@ -110,35 +133,12 @@ jobs:
             - See commit history for details
             
             ## Files
-            - Windows: PDFCommentViewer-${{ env.version }}.exe
-            - macOS: PDFCommentViewer-${{ env.version }}.dmg
-            - Linux: pdf_comment_viewer-${{ env.version }}.tar.gz
+            - Windows: PDFCommentViewer-${{ env.version }}-Windows.exe
+            - macOS: PDFCommentViewer-${{ env.version }}-MacOS.dmg
+            - Linux: pdf_comment_viewer-${{ env.version }}-Linux.tar.gz
           draft: false
           prerelease: false
-      - name: Upload Windows Release Asset
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: PDFCommentViewer-Windows/PDFCommentViewer-${{ env.version }}.exe
-          asset_name: PDFCommentViewer-${{ env.version }}-Windows.exe
-          asset_content_type: application/octet-stream
-      - name: Upload macOS Release Asset
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: PDFCommentViewer-MacOS/PDFCommentViewer-${{ env.version }}.dmg
-          asset_name: PDFCommentViewer-${{ env.version }}-MacOS.dmg
-          asset_content_type: application/octet-stream
-      - name: Upload Linux Release Asset
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: PDFCommentViewer-Linux/pdf_comment_viewer-${{ env.version }}.tar.gz
-          asset_name: pdf_comment_viewer-${{ env.version }}-Linux.tar.gz
-          asset_content_type: application/gzip
+          files: |
+            artifacts/PDFCommentViewer-Windows/PDFCommentViewer-${{ env.version }}.exe
+            artifacts/PDFCommentViewer-MacOS/PDFCommentViewer-${{ env.version }}.dmg
+            artifacts/PDFCommentViewer-Linux/pdf_comment_viewer-${{ env.version }}.tar.gz
